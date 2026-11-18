@@ -30,6 +30,8 @@ type room struct {
 	ExpiresAt     time.Time
 	LastSeen      time.Time
 	Live          bool
+	Players map[string]*relayPlayer
+	HostWS *relayConn
 }
 
 type rateEntry struct {
@@ -74,6 +76,16 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/rooms/{code}", s.setRoomStatus)
 	mux.HandleFunc("POST /api/rooms/{code}/heartbeat", s.heartbeat)
 	mux.HandleFunc("DELETE /api/rooms/{code}", s.deleteRoom)
+    // The relay is intentionally opt-in until the browser live test is verified.
+    if os.Getenv("YUKMAIN_RELAY_DEBUG") == "1" {
+        mux.HandleFunc("GET /api/relay/config", func(w http.ResponseWriter, _ *http.Request) {
+            writeJSON(w, 200, map[string]bool{"enabled": true})
+        })
+        mux.HandleFunc("POST /api/rooms/{code}/players", s.registerPlayer)
+        mux.HandleFunc("GET /api/rooms/{code}/players", s.listPlayers)
+        mux.HandleFunc("PATCH /api/rooms/{code}/players/{id}", s.approvePlayer)
+        mux.HandleFunc("GET /api/rooms/{code}/relay", s.relaySocket)
+    }
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -195,6 +207,7 @@ func (s *server) deleteRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "Room tidak ditemukan atau akses ditolak.")
 		return
 	}
+	s.closeRelay(entry)
 	delete(s.rooms, entry.Code)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -292,6 +305,7 @@ func (s *server) reaper() {
 		now := s.now()
 		for code, r := range s.rooms {
 			if !s.isAvailable(r, now) {
+                s.closeRelay(r)
 				delete(s.rooms, code)
 			}
 		}

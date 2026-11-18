@@ -96,3 +96,19 @@ footer{display:flex;justify-content:space-between;color:#71809d;font-size:11px;p
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:960px){.home{grid-template-columns:1fr 390px;gap:32px}.studio-grid{grid-template-columns:1fr}.side{grid-template-columns:1fr 1fr}}
 @media(max-width:750px){header,main,footer{width:min(520px,calc(100% - 34px))}.meta{font-size:10px}.home{grid-template-columns:1fr;gap:24px;padding:22px 0 45px}.intro h1{font-size:50px;letter-spacing:-2.5px}.intro>p{font-size:14px}.benefits{gap:11px}.side{grid-template-columns:1fr}.studio-head>.danger{display:none}.studio-head h1{font-size:29px}.panel-actions button{flex:1}.viewer-bottom{flex-direction:column;align-items:flex-start}.viewer-top,.viewer-bottom{padding:15px}.viewer-bottom .buttons{width:100%}.viewer-bottom button{flex:1}}
+
+
+/* Phase 2 server-side relay test panel. No gameplay controls yet. */
+.relay-debug { background:#172132; border:1px solid #4b6281; border-radius:14px; color:#f1f5ff; padding:15px; margin-top:14px; min-width:0; }
+.relay-debug-head { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; align-items:center; }
+.relay-debug p { color:#b5c4dc; font-size:12px; margin:8px 0 13px; }
+.relay-online { color:#8ee5bb; }
+.relay-offline { color:#ffb3a9; }
+.relay-debug-players { display:grid; gap:8px; font-size:13px; }
+.relay-debug-player { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; border:1px solid #394d69; border-radius:9px; padding:9px; font-size:13px; }
+.relay-debug-player > div, .relay-debug-buttons { display:flex; flex-wrap:wrap; gap:6px; }
+.relay-debug button { padding:7px 11px; border-radius:8px; margin:0; font-size:12px; cursor:pointer; }
+.relay-debug button:disabled { opacity:.4; cursor:not-allowed; }
+.relay-debug-log { max-height:165px; overflow:auto; display:grid; gap:4px; padding:10px; background:#0c1421; border-radius:8px; font:12px/1.5 ui-monospace,monospace; color:#b7d7f1; margin-top:14px; overflow-wrap:anywhere; }
+.relay-debug-viewer { position:absolute; z-index:20; top:85px; right:15px; width:min(420px,calc(100% - 30px)); max-height:60vh; overflow:auto; }
+.relay-debug-viewer .relay-debug { margin-top:0; }
