@@ -7,12 +7,11 @@ Browser-based screen and tab sharing with a short code. Custom React frontend + 
 Prerequisites: **Docker Desktop + Docker Compose**, and a browser with working access to `https://vdo.ninja`.
 
 ```bash
-cp .env.example .env    # optional; Windows users can just skip this
-
-docker compose up -d --build
+# Optional: copy .env.example to .env to choose APP_PORT
+docker compose -f compose.yaml -f compose.local.yaml up -d --build
 ```
 
-Open **http://localhost:8088** in Chrome or Edge on the host computer.
+Open **http://localhost:8088** in Chrome or Edge on the host computer. The local override binds to `127.0.0.1` only. If port 8088 is occupied, set `APP_PORT=8090` in `.env` and open `http://localhost:8090`.
 
 ### Host flow
 
@@ -32,7 +31,8 @@ For a quick local test, open YukMain in two separate browser windows on the **sa
 
 ## Important: local vs remote access
 
-- Compose binds port **8088 to 127.0.0.1**, so only the current computer can reach the YukMain website by default.
+- The **base `compose.yaml` does not publish any host ports**, avoiding port collisions when deploying with Coolify or another reverse proxy. In Coolify, route the domain to service **`web`**, internal port **80**; API is proxied internally by Nginx.
+- Only `compose.local.yaml` publishes an optional localhost-only port (**8088** by default). Never include the local override in a shared hosting deployment.
 - For friends in another place, you must deploy the web + API with a **public HTTPS domain** (e.g. via Coolify) or use an appropriate HTTPS tunnel. Opening `localhost:8088` on a friend's laptop will not connect to your PC.
 - `localhost` is a secure context for browser capture. Ordinary LAN HTTP addresses are generally **not** accepted for screen capture; use HTTPS outside localhost.
 - The VDO.Ninja engine itself still needs Internet access even during a local YukMain test. The Go backend only maps room codes to stream IDs; it does not encode, record, or relay video.
@@ -40,10 +40,15 @@ For a quick local test, open YukMain in two separate browser windows on the **sa
 ## Commands
 
 ```bash
-docker compose up -d --build
-docker compose ps
-docker compose logs -f
-docker compose down
+# Local development (explicit override for localhost:8088):
+docker compose -f compose.yaml -f compose.local.yaml up -d --build
+docker compose -f compose.yaml -f compose.local.yaml ps
+docker compose -f compose.yaml -f compose.local.yaml logs -f
+docker compose -f compose.yaml -f compose.local.yaml down
+
+# Server/Coolify: use the base compose.yaml only.
+# It exposes port 80 inside Docker but publishes NO host ports.
+docker compose -f compose.yaml up -d --build
 ```
 
 API tests (Go 1.23+):
@@ -97,7 +102,8 @@ No database and no Redis required for this MVP. The Go server keeps rooms in mem
 .
 ├── api/             # Go 1.23 API + tests, no external modules
 ├── web/             # React 19, TypeScript, Vite, Nginx
-├── compose.yaml
+├── compose.yaml       # No published host port; Coolify / server
+├── compose.local.yaml # Optional localhost port for local testing
 ├── .env.example
 └── README.md
 ```
