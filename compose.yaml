@@ -5,6 +5,12 @@ services:
     build:
       context: ./api
     restart: unless-stopped
+    # Private network: prevents a conflicting/stale API DNS target on
+    # EasyPanel's public/default Docker network.
+    networks:
+      backend:
+        aliases:
+          - yukmain-api-internal
     environment:
       PORT: "8080"
     expose:
@@ -22,6 +28,11 @@ services:
     build:
       context: ./web
     restart: unless-stopped
+    # Keep default network for the EasyPanel ingress and a separate
+    # backend network exclusively for nginx -> Go communication.
+    networks:
+      - default
+      - backend
     depends_on:
       api:
         condition: service_healthy
@@ -36,3 +47,7 @@ services:
       interval: 20s
       timeout: 5s
       retries: 3
+
+networks:
+  backend:
+    internal: true

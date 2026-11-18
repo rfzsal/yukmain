@@ -115,3 +115,18 @@ No database and no Redis required for this MVP. The Go server keeps rooms in mem
 - VDO.Ninja screen share guide: https://docs.vdo.ninja/guides/how-to-screen-share-in-1080p
 
 VDO.Ninja is a third-party open-source project; YukMain is a wrapper and is not affiliated with it.
+
+## EasyPanel / reverse proxy troubleshooting
+
+The Compose deployment has **two Docker networks**: the standard `default` network (used by EasyPanel to reach `web:80`), and an isolated `backend` network shared only by the `web` and `api` containers. Nginx connects to Go via the **unique network alias** `yukmain-api-internal:8080`, not the potentially ambiguous `api` name on the shared network. Docker DNS is re-resolved as the API container is replaced.
+
+Set the EasyPanel domain to **Compose Service = web**, **Protocol = HTTP**, **Port = 80**, **Path = /**. Do not publish Go API's port to the host.
+
+After changing the network definitions, **recreate/redeploy the entire Compose stack** (both services), not just restart an existing `web` container. Then verify from the `web` Service Console:
+
+```sh
+wget -S -O - http://yukmain-api-internal:8080/api/health
+wget -S -O - http://127.0.0.1/api/health
+```
+
+Both should respond HTTP 200 with `{"status":"ok"}`. The public `/api/health` route should then work through EasyPanel.
