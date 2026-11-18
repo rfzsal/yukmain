@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, Fullscreen, LoaderCircle, MonitorPlay, Play, ScreenShare, ShieldCheck, StopCircle, X } from 'lucide-react';
 import { api, type HostRoom, type RoomData } from './api';
 import { hostVdoUrl, viewerVdoUrl } from './vdo';
+import { RelayDebugPanel } from './RelayDebugPanel';
 
 type Mode = 'home' | 'host' | 'viewer';
 const HOST_KEY = 'yukmain-active-host';
@@ -144,6 +145,7 @@ export default function App() {
         <div className="viewer-bottom"><span className="live-label">{viewer.status === 'live' ? '● HOST LIVE' : '● MENUNGGU HOST'}</span><div className="buttons"><button className="secondary" onClick={fullscreen}><Fullscreen size={17}/> Fullscreen</button><button className="secondary" onClick={exitViewer}><ArrowLeft size={17}/> Keluar</button></div></div>
       </div> : <button className="reveal" onClick={() => setControls(true)}>Tampilkan kontrol</button>}
       {error && <div className="toast">{error}<button onClick={() => setError('')}><X size={16}/></button></div>}
+      <div className="relay-debug-viewer"><RelayDebugPanel role="player" roomCode={viewer.code}/></div>
     </div>
   );
 
@@ -170,6 +172,7 @@ export default function App() {
         <aside className="side">
           <section className="panel room"><small>KODE ROOM KAMU</small><div className="room-code">{prettyCode(host.code)}</div><p>Bagikan kode ini agar teman bisa nonton.</p><button className="primary wide" onClick={()=>void copy(host.code,'code')}>{copied==='code' ? <Check size={17}/> : <Copy size={17}/>} {copied==='code'?'Kode tersalin':'Salin kode'}</button><button className="secondary wide" onClick={()=>void copy(inviteUrl(host.code),'link')}>{copied==='link' ? <Check size={17}/> : <Copy size={17}/>} {copied==='link'?'Link tersalin':'Salin link undangan'}</button></section>
           <section className="panel info"><h3><ShieldCheck size={18}/> Cara kerja YukMain</h3><p>✓ Host memilih sumber layar</p><p>✓ Penonton masuk memakai kode</p><p>✓ Penonton hanya bisa melihat</p><hr/><small>Room aktif maksimal 4 jam, dan berakhir jika host offline selama sekitar 90 detik.</small></section>
+          <RelayDebugPanel role="host" roomCode={host.code} hostToken={host.hostToken}/>
         </aside>
       </div>
     </main>}

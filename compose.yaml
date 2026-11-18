@@ -13,6 +13,8 @@ services:
           - yukmain-api-internal
     environment:
       PORT: "8080"
+      # Enable only on a controlled test deployment; disable after verification.
+      YUKMAIN_RELAY_DEBUG: "${YUKMAIN_RELAY_DEBUG:-0}"
     expose:
       - "8080"
     read_only: true
