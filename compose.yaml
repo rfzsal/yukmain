@@ -1,10 +1,9 @@
-name: yukmain
-
+# Deployment-safe base: publish no host ports.
+# For local localhost access, add -f compose.local.yaml.
 services:
   api:
     build:
       context: ./api
-    image: yukmain-api:local
     restart: unless-stopped
     environment:
       PORT: "8080"
@@ -22,13 +21,12 @@ services:
   web:
     build:
       context: ./web
-    image: yukmain-web:local
     restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:${APP_PORT:-8088}:80"
+    expose:
+      - "80"
     security_opt:
       - no-new-privileges:true
     healthcheck:
