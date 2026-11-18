@@ -30,7 +30,9 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health"]
+      # Health of the web gateway must not depend on availability of the API.
+      # The API has its own separate healthcheck above.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
       interval: 20s
       timeout: 5s
       retries: 3
