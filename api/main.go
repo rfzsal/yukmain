@@ -76,7 +76,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/rooms/{code}", s.setRoomStatus)
 	mux.HandleFunc("POST /api/rooms/{code}/heartbeat", s.heartbeat)
 	mux.HandleFunc("DELETE /api/rooms/{code}", s.deleteRoom)
-    // The relay is intentionally opt-in until the browser live test is verified.
+    // The browser debug panel is opt-in; authenticated relay and pairing work without it.
     if os.Getenv("YUKMAIN_RELAY_DEBUG") == "1" {
         mux.HandleFunc("GET /api/relay/config", func(w http.ResponseWriter, _ *http.Request) {
             writeJSON(w, 200, map[string]bool{"enabled": true})

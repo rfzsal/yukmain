@@ -224,7 +224,14 @@ func (s *server) relaySocket(w http.ResponseWriter, r *http.Request) {
             s.mu.Unlock(); writeError(w,401,"Unauthorized."); return
         }
         if entry.HostWS!=nil {
-            s.mu.Unlock(); writeError(w,409,"Host receiver already connected."); return
+            if role=="agent" && entry.HostKind=="host" {
+                // The paired Windows Agent takes priority over the browser debug receiver.
+                entry.HostWS.close()
+                entry.HostWS=nil
+                entry.HostKind=""
+            } else {
+                s.mu.Unlock(); writeError(w,409,"Host receiver already connected."); return
+            }
         }
     } else {
         player=entry.Players[playerID]

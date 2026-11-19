@@ -30,6 +30,10 @@ function messageOf(error: unknown): string {
 export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
   const [enabled, setEnabled] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [agentPaired, setAgentPaired] = useState(false);
+  const [agentConnected, setAgentConnected] = useState(false);
+  const [pairingCode, setPairingCode] = useState('');
+  const [pairingError, setPairingError] = useState('');
   const [playerId, setPlayerId] = useState('');
   const [playerToken, setPlayerToken] = useState('');
   const [slot, setSlot] = useState(0);
@@ -51,6 +55,44 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
       .catch(() => { if (active) setEnabled(false); });
     return () => { active = false; };
   }, []);
+
+
+  useEffect(() => {
+    if (role !== 'host' || !hostToken) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/rooms/${roomCode}/pairing`, {
+          headers: { Authorization: `Bearer ${hostToken}` }, cache: 'no-store',
+        });
+        if (!response.ok) return;
+        const data = await response.json() as { paired: boolean; agentConnected: boolean };
+        if (active) {
+          setAgentPaired(data.paired);
+          setAgentConnected(data.agentConnected);
+        }
+      } catch { /* Preserve last state. */ }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 3000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [role, roomCode, hostToken]);
+
+  async function generatePairing() {
+    if (!hostToken) return;
+    setPairingError('');
+    try {
+      const response = await fetch(`/api/rooms/${roomCode}/pairing`, {
+        method: 'POST', headers: { Authorization: `Bearer ${hostToken}` },
+      });
+      const data = await response.json() as { pairingCode?: string; error?: string };
+      if (!response.ok || !data.pairingCode) throw new Error(data.error ?? 'Pairing failed');
+      setPairingCode(data.pairingCode);
+      setAgentPaired(false);
+      setAgentConnected(false);
+      log('One-time agent code generated; expires in 3 minutes');
+    } catch (error) { setPairingError(messageOf(error)); }
+  }
 
   useEffect(() => {
     if (!enabled || role !== 'host' || !hostToken) return;
@@ -75,7 +117,7 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
 
   useEffect(() => {
     if (!enabled) return;
-    if (role === 'host' && !hostToken) return;
+    if (role === 'host' && (!hostToken || agentPaired)) return;
     if (role === 'player' && (!playerToken || !playerId)) return;
 
     const token = role === 'host' ? hostToken! : playerToken;
@@ -121,7 +163,7 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
       if (socketRef.current === ws) socketRef.current = null;
       ws.close();
     };
-  }, [enabled, role, roomCode, hostToken, playerId, playerToken, log]);
+  }, [enabled, role, roomCode, hostToken, playerId, playerToken, agentPaired, log]);
 
   async function requestControl() {
     try {
@@ -169,14 +211,22 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
     log(`P${slot}: sent ${buttons.join(', ') || 'neutral'} · seq ${seqRef.current}`);
   }
 
-  if (!enabled) return null;
+  if (!enabled && role !== 'host') return null;
 
   return <section className="relay-debug">
     <div className="relay-debug-head">
       <strong>WebSocket Relay Debug · {role === 'host' ? 'Host Receiver' : 'Remote Player'}</strong>
       <span className={connected ? 'relay-online' : 'relay-offline'}>{connected ? '● Connected' : '○ Disconnected'}</span>
     </div>
-    <p>Testing only · WebSocket state relay · No Windows controller connected</p>
+    <p>WebSocket relay · {role === 'host' && agentConnected ? 'Windows Agent connected' : 'Browser debug / pairing'}</p>
+    {role === 'host' && <div className="relay-debug-players">
+      <strong>Windows Host Agent pairing</strong>
+      <small>Agent: {agentConnected ? 'connected and receiving input' : agentPaired ? 'paired, waiting for connection' : 'not paired'}</small>
+      <button className="secondary" onClick={() => void generatePairing()}>Generate pairing code</button>
+      {pairingCode && <div className="relay-debug-player"><span>Room {roomCode} · Code <strong>{pairingCode}</strong></span><small>Enter these in the unelevated YukMain Bridge app. One-time, 3-minute code.</small></div>}
+      {pairingError && <small role="alert">{pairingError}</small>}
+      {agentPaired && <small>Browser Host Receiver disabled while Agent paired. Approvals remain available.</small>}
+    </div>}
     {role === 'host' ? <>
       <div className="relay-debug-players">
         <strong>Control requests</strong>
