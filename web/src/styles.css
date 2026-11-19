@@ -139,3 +139,7 @@ footer{display:flex;justify-content:space-between;color:#71809d;font-size:11px;p
 .viewer[data-hud-visible="true"] .viewer-top,.viewer[data-hud-visible="true"] .viewer-bottom{opacity:1;pointer-events:auto}
 .viewer-top{padding-right:180px}
 @media(max-width:600px){.quickplay-root{top:8px;right:8px}.quickplay-badge{font-size:11px}.viewer-top{padding-right:130px}}
+
+/* Guest stream is watch-only: never allow the VDO.Ninja iframe to take input. */
+.viewer .viewframe{pointer-events:none}
+.viewer:focus{outline:none}

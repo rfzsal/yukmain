@@ -138,10 +138,23 @@ export default function App() {
     return () => { if (hudTimer.current !== null) window.clearTimeout(hudTimer.current); };
   }, [mode]);
 
+  // Keep all game keys in the YukMain document, never inside the stream iframe.
+  useEffect(() => {
+    if (mode === 'viewer') viewerRef.current?.focus({ preventScroll: true });
+  }, [mode, viewer?.code]);
+
+  function focusPlayer(event: React.PointerEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (target instanceof HTMLElement &&
+        target.closest('button, a, input, textarea, select')) return;
+    viewerRef.current?.focus({ preventScroll: true });
+  }
+
   async function fullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await viewerRef.current?.requestFullscreen();
+      viewerRef.current?.focus({ preventScroll: true });
     } catch { setError('Fullscreen ditolak browser. Coba tombol F11.'); }
   }
   function exitViewer() {
@@ -150,13 +163,13 @@ export default function App() {
   }
 
   if (mode === 'viewer' && viewer) return (
-    <div className="viewer" ref={viewerRef} data-hud-visible={hudVisible ? "true" : "false"} onPointerMove={revealHud} onPointerDown={revealHud}>
-      <iframe className="viewframe" src={viewerVdoUrl(viewer.streamId)} title="YukMain stream" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen referrerPolicy="no-referrer"/>
+    <div className="viewer" ref={viewerRef} tabIndex={-1} data-hud-visible={hudVisible ? "true" : "false"} onPointerMove={revealHud} onPointerDown={event => { revealHud(); focusPlayer(event); }}>
+      <iframe className="viewframe" tabIndex={-1} src={viewerVdoUrl(viewer.streamId)} title="YukMain stream" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen referrerPolicy="no-referrer"/>
       {viewer.status !== 'live' && <div className="waiting"><div className="spinner"/><h2>Menunggu host membagikan layar</h2><p>Room {prettyCode(viewer.code)} siap. Stream akan muncul saat host mulai siaran.</p></div>}
       {controls ? <div className="viewer-ui">
-        <div className="viewer-top"><Logo/><span className="pill">Room {prettyCode(viewer.code)}</span><button className="ghost" title="Sembunyikan kontrol" onClick={() => setControls(false)}><X size={19}/></button></div>
+        <div className="viewer-top"><Logo/><span className="pill">Room {prettyCode(viewer.code)}</span><button className="ghost" title="Sembunyikan kontrol" onClick={() => { setControls(false); viewerRef.current?.focus({ preventScroll: true }); }}><X size={19}/></button></div>
         <div className="viewer-bottom"><span className="live-label">{viewer.status === 'live' ? '● HOST LIVE' : '● MENUNGGU HOST'}</span><div className="buttons"><button className="secondary" onClick={fullscreen}><Fullscreen size={17}/> Fullscreen</button><button className="secondary" onClick={exitViewer}><ArrowLeft size={17}/> Keluar</button></div></div>
-      </div> : <button className="reveal" onClick={() => setControls(true)}>Tampilkan kontrol</button>}
+      </div> : <button className="reveal" onClick={() => { setControls(true); viewerRef.current?.focus({ preventScroll: true }); }}>Tampilkan kontrol</button>}
       {error && <div className="toast">{error}<button onClick={() => setError('')}><X size={16}/></button></div>}
       <QuickPlayGuest roomCode={viewer.code}/>
     </div>
