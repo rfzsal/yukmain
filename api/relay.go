@@ -26,6 +26,8 @@ type relayPlayer struct {
     LastSeq uint64
     RateStart time.Time
     Frames int
+    Instant bool
+    JoinDeadline time.Time
 }
 
 type relayConn struct {
@@ -242,6 +244,10 @@ func (s *server) relaySocket(w http.ResponseWriter, r *http.Request) {
         }
     } else {
         player=entry.Players[playerID]
+        if player!=nil && player.Instant && player.Conn==nil && s.now().After(player.JoinDeadline) {
+            delete(entry.Players,playerID)
+            player=nil
+        }
         if player==nil || subtle.ConstantTimeCompare(hash[:],player.TokenHash[:])!=1 {
             s.mu.Unlock(); writeError(w,401,"Unauthorized."); return
         }
@@ -264,13 +270,19 @@ func (s *server) relaySocket(w http.ResponseWriter, r *http.Request) {
         s.mu.Lock()
         if role=="host" || role=="agent" {
             if entry.HostWS==conn { entry.HostWS=nil; entry.HostKind="" }
-        } else if player.Conn==conn {
-            player.Conn=nil
         }
         host:=entry.HostWS
         wasApproved:=player!=nil && player.Approved
         slot:=0
         if player!=nil { slot=player.Slot }
+        if player!=nil && player.Conn==conn {
+            player.Conn=nil
+            if player.Instant {
+                player.Approved=false
+                player.Slot=0
+                delete(entry.Players,player.ID)
+            }
+        }
         s.mu.Unlock()
         if player!=nil && wasApproved && host!=nil {
             _=host.send(map[string]any{"type":"controller.neutral","slot":slot,"playerId":player.ID})
@@ -361,3 +373,75 @@ func (s *server) closeRelay(entry *room) {
     }
 }
 
+
+func (s *server) instantJoinSettings(w http.ResponseWriter,r *http.Request) {
+    s.mu.Lock()
+    entry,ok:=s.authorizedRoom(r)
+    if !ok {s.mu.Unlock();writeError(w,404,"Room unavailable or unauthorized.");return}
+    enabled:=entry.InstantJoinEnabled
+    s.mu.Unlock()
+    writeJSON(w,200,map[string]bool{"enabled":enabled})
+}
+
+func (s *server) setInstantJoin(w http.ResponseWriter,r *http.Request) {
+    r.Body=http.MaxBytesReader(w,r.Body,1024)
+    var payload struct{ Enabled *bool `json:"enabled"` }
+    if json.NewDecoder(r.Body).Decode(&payload)!=nil || payload.Enabled==nil {
+        writeError(w,400,"Invalid controller setting.");return
+    }
+    s.mu.Lock()
+    entry,ok:=s.authorizedRoom(r)
+    if !ok {s.mu.Unlock();writeError(w,404,"Room unavailable or unauthorized.");return}
+    entry.InstantJoinEnabled=*payload.Enabled
+    s.mu.Unlock()
+    writeJSON(w,200,map[string]bool{"enabled":*payload.Enabled})
+}
+
+// Instant controller slots are atomically assigned and guarded by a short
+// connection lease; abandoned HTTP claims cannot reserve a controller forever.
+func (s *server) instantJoin(w http.ResponseWriter,r *http.Request) {
+    if !s.allow(r,"instant-join",12,time.Minute) {
+        writeError(w,429,"Too many join attempts.");return
+    }
+    code:=r.PathValue("code")
+    if !validCode(code) {writeError(w,400,"Invalid room.");return}
+    token,err:=secureHex(32)
+    if err!=nil {writeError(w,500,"Unable to create player.");return}
+    id,err:=secureHex(8)
+    if err!=nil {writeError(w,500,"Unable to create player.");return}
+    s.mu.Lock()
+    entry,ok:=s.rooms[code]
+    if !ok || !s.isAvailable(entry,s.now()) {
+        s.mu.Unlock();writeError(w,404,"Room unavailable.");return
+    }
+    if !entry.InstantJoinEnabled {
+        s.mu.Unlock();writeError(w,403,"Host has not enabled instant controllers.");return
+    }
+    if entry.HostWS==nil || entry.HostKind!="agent" {
+        s.mu.Unlock();writeError(w,409,"Windows Host Agent is not connected.");return
+    }
+    for key,p:=range entry.Players {
+        if p.Instant && p.Conn==nil && s.now().After(p.JoinDeadline) {
+            delete(entry.Players,key)
+        }
+    }
+    slot:=0
+    for candidate:=2;candidate<=4;candidate++ {
+        occupied:=false
+        for _,other:=range entry.Players {
+            if other.Approved && other.Slot==candidate {occupied=true;break}
+        }
+        if !occupied {slot=candidate;break}
+    }
+    if slot==0 {s.mu.Unlock();writeError(w,409,"All controller slots are occupied.");return}
+    if entry.Players==nil {entry.Players=make(map[string]*relayPlayer)}
+    entry.Players[id]=&relayPlayer{
+        ID:id,TokenHash:sha256.Sum256([]byte(token)),
+        Approved:true,Slot:slot,Instant:true,
+        JoinDeadline:s.now().Add(15*time.Second),
+    }
+    s.mu.Unlock()
+    writeJSON(w,201,map[string]any{
+        "playerId":id,"playerToken":token,"status":"approved","slot":slot,
+    })
+}

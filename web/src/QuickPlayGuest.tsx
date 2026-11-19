@@ -1,0 +1,99 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BrowserController, type ControllerSnapshot } from './BrowserController';
+import { Gamepad2, Keyboard, Settings2, WifiOff } from 'lucide-react';
+
+type JoinResult = { playerId: string; playerToken: string; slot: number; status: string; error?: string };
+type Props = { roomCode: string };
+function relayUrl(code: string, id: string) {
+  const url = new URL(`/api/rooms/${code}/relay`, window.location.href);
+  url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.searchParams.set('role', 'player');
+  url.searchParams.set('playerId', id);
+  return url.toString();
+}
+export function QuickPlayGuest({ roomCode }: Props) {
+  const [player, setPlayer] = useState<JoinResult | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState('Connecting controller…');
+  const [settings, setSettings] = useState(false);
+  const [device, setDevice] = useState<'keyboard' | 'gamepad'>('keyboard');
+  const [retry, setRetry] = useState(0);
+  const socket = useRef<WebSocket | null>(null);
+  const seq = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    let ws: WebSocket | null = null;
+    setPlayer(null);
+    setConnected(false);
+    setStatus('Finding available controller…');
+    seq.current = 0;
+
+    async function connect() {
+      try {
+        const result = await fetch(`/api/rooms/${roomCode}/players/instant`, { method: 'POST', cache: 'no-store' });
+        const data = await result.json() as JoinResult;
+        if (!result.ok) throw new Error(data.error ?? 'Unable to claim a controller');
+        if (cancelled) return;
+        setPlayer(data);
+        setStatus('Connecting…');
+        ws = new WebSocket(relayUrl(roomCode, data.playerId), [
+          'yukmain.v1', `yukmain-player.${data.playerToken}`,
+        ]);
+        socket.current = ws;
+        ws.onopen = () => { if (!cancelled) { setConnected(true);setStatus('Connected'); } };
+        ws.onmessage = event => {
+          try {
+            const message = JSON.parse(String(event.data)) as { type: string; status?: string; slot?: number };
+            if (cancelled) return;
+            if (message.type === 'player.status') {
+              if (message.status === 'approved') {
+                setPlayer(p => p ? { ...p, slot: message.slot ?? p.slot } : p);
+              } else {
+                setConnected(false);
+                setStatus('Controller access revoked');
+                ws?.close();
+              }
+            }
+          } catch { /* Ignore malformed non-controller messages. */ }
+        };
+        ws.onerror = () => { if (!cancelled) setStatus('Controller connection failed'); };
+        ws.onclose = () => {
+          if (!cancelled) {
+            setConnected(false);
+            setStatus('Disconnected. Reconnect to play.');
+          }
+        };
+      } catch (error) {
+        if (!cancelled) setStatus(error instanceof Error ? error.message : 'Unable to connect');
+      }
+    }
+    void connect();
+    return () => { cancelled = true; ws?.close(); if (socket.current === ws) socket.current = null; };
+  }, [roomCode, retry]);
+
+  const send = useCallback((snapshot: ControllerSnapshot) => {
+    if (!connected || !player || socket.current?.readyState !== WebSocket.OPEN) return;
+    if (socket.current.bufferedAmount > 64 * 1024) return;
+    seq.current += 1;
+    socket.current.send(JSON.stringify({ type: 'controller.state', seq: seq.current, ...snapshot }));
+  }, [connected, player]);
+
+  return <div className="quickplay-root">
+    <div className="quickplay-badge" role="status" aria-live="polite">
+      {connected && player ?
+        <><Gamepad2 size={15}/><b>P{player.slot}</b><span>Connected</span></> :
+        <><WifiOff size={15}/><span>{status}</span></>}
+      <button className="quickplay-icon" type="button" aria-label="Controller settings"
+        aria-expanded={settings} onClick={() => setSettings(open => !open)}><Settings2 size={16}/></button>
+    </div>
+    {!connected && <button className="quickplay-retry" type="button"
+      onClick={() => setRetry(v => v + 1)}>Retry connection</button>}
+    {connected && <div className="quickplay-device">
+      {device === 'gamepad' ? <Gamepad2 size={13}/> : <Keyboard size={13}/>}
+      <span>{device === 'gamepad' ? 'Gamepad' : 'Keyboard'}</span>
+    </div>}
+    <BrowserController active={connected} compact showSettings={settings}
+      send={send} onDeviceChange={setDevice}/>
+  </div>;
+}

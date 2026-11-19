@@ -120,3 +120,22 @@ footer{display:flex;justify-content:space-between;color:#71809d;font-size:11px;p
 .controller-devices button[aria-pressed="true"]{background:#604bb3;border-color:#b09cff;color:#fff}
 .browser-controller label{display:block;font-size:11px;margin-bottom:6px}
 .browser-controller select{width:100%;min-width:0;background:#17243a;border:1px solid #526184;border-radius:8px;color:#f1f5ff;padding:9px;margin-bottom:8px}
+
+.instant-toggle{display:flex;align-items:flex-start;gap:10px;background:#151e31;border-radius:10px;padding:12px;margin:12px 0;color:#f1f5ff}
+.instant-toggle input{width:18px;height:18px;flex-shrink:0;accent-color:#a18eff;margin-top:3px}
+.instant-toggle span{display:grid;gap:5px}
+.instant-toggle small{color:#aab9d0;font-size:11px;line-height:1.5}
+.quickplay-root{position:absolute;z-index:30;top:16px;right:16px;display:grid;justify-items:end;gap:7px;max-width:min(350px,calc(100vw - 32px));pointer-events:none}
+.quickplay-badge{display:flex;gap:8px;align-items:center;max-width:100%;background:#111a2cd9;color:#f1f5ff;border:1px solid #7382a266;padding:8px 10px;border-radius:999px;font-size:12px;backdrop-filter:blur(12px);pointer-events:auto}
+.quickplay-badge span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quickplay-badge b{font-size:13px}
+.quickplay-icon{background:transparent;color:inherit;border:0;padding:2px;display:grid;place-items:center}
+.quickplay-device{display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:#101b30c0;font-size:10px;color:#aab9d0}
+.quickplay-retry{pointer-events:auto;border:1px solid #64748b;color:#fff;background:#263752e8;border-radius:10px;padding:7px 11px;font-size:12px}
+.quickplay-root>.browser-controller{pointer-events:auto;width:min(320px,calc(100vw - 32px));max-height:50vh;overflow-y:auto;box-shadow:0 16px 38px #0009}
+.viewer .relay-debug-viewer{display:none}
+.viewer-ui{z-index:10}
+.viewer-top,.viewer-bottom{opacity:0;transition:opacity .2s ease;pointer-events:none}
+.viewer[data-hud-visible="true"] .viewer-top,.viewer[data-hud-visible="true"] .viewer-bottom{opacity:1;pointer-events:auto}
+.viewer-top{padding-right:180px}
+@media(max-width:600px){.quickplay-root{top:8px;right:8px}.quickplay-badge{font-size:11px}.viewer-top{padding-right:130px}}

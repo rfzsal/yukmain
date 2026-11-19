@@ -30,6 +30,8 @@ function messageOf(error: unknown): string {
 
 export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
   const [enabled, setEnabled] = useState(false);
+  const [instantJoin, setInstantJoin] = useState(false);
+  const [instantError, setInstantError] = useState('');
   const [connected, setConnected] = useState(false);
   const [agentPaired, setAgentPaired] = useState(false);
   const [agentConnected, setAgentConnected] = useState(false);
@@ -79,6 +81,33 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
     return () => { active = false; window.clearInterval(timer); };
   }, [role, roomCode, hostToken]);
 
+  useEffect(() => {
+    if (role !== 'host' || !hostToken) return;
+    let active = true;
+    void fetch(`/api/rooms/${roomCode}/controls`, {
+      headers: { Authorization: `Bearer ${hostToken}` }, cache: 'no-store',
+    }).then(async response => {
+      if (!response.ok) throw new Error('Unable to load room controller settings');
+      return response.json() as Promise<{ enabled: boolean }>;
+    }).then(data => { if (active) setInstantJoin(data.enabled); })
+      .catch(error => { if (active) setInstantError(messageOf(error)); });
+    return () => { active = false; };
+  }, [role, roomCode, hostToken]);
+
+  async function toggleInstantJoin(enabled: boolean) {
+    if (!hostToken) return;
+    setInstantError('');
+    try {
+      const response = await fetch(`/api/rooms/${roomCode}/controls`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${hostToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!response.ok) throw new Error(`Unable to update quick join (HTTP ${response.status})`);
+      setInstantJoin(enabled);
+    } catch (error) { setInstantError(messageOf(error)); }
+  }
+
   async function generatePairing() {
     if (!hostToken) return;
     setPairingError('');
@@ -117,7 +146,7 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
   }, [role, roomCode, hostToken, log]);
 
   useEffect(() => {
-    if (!enabled && role === 'host') return;
+    if (role === 'host') return; // A Windows Agent owns the receiver; never connect browser debugging.
     if (role === 'host' && (!hostToken || agentPaired)) return;
     if (role === 'player' && (!playerToken || !playerId)) return;
 
@@ -222,21 +251,23 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
 
   return <section className="relay-debug">
     <div className="relay-debug-head">
-      <strong>WebSocket Relay Debug · {role === 'host' ? 'Host Receiver' : 'Remote Player'}</strong>
-      <span className={connected ? 'relay-online' : 'relay-offline'}>{connected ? '● Connected' : '○ Disconnected'}</span>
+      <strong>Game room · Controllers</strong>
+      <span className={(role === 'host' ? agentConnected : connected) ? 'relay-online' : 'relay-offline'}>{(role === 'host' ? agentConnected : connected) ? '● Connected' : '○ Disconnected'}</span>
     </div>
-    <p>WebSocket relay · {role === 'host' && agentConnected ? 'Windows Agent connected' : 'Browser debug / pairing'}</p>
+    <p>Windows Agent: {agentConnected ? 'connected' : agentPaired ? 'paired' : 'not connected'}</p>
     {role === 'host' && <div className="relay-debug-players">
-      <strong>Windows Host Agent pairing</strong>
+      <strong>Windows Agent</strong>
       <small>Agent: {agentConnected ? 'connected and receiving input' : agentPaired ? 'paired, waiting for connection' : 'not paired'}</small>
-      <button className="secondary" onClick={() => void generatePairing()}>Generate pairing code</button>
+      <button className="secondary" onClick={() => void generatePairing()}>Pair Windows Agent</button>
       {pairingCode && <div className="relay-debug-player"><span>Room {roomCode} · Code <strong>{pairingCode}</strong></span><small>Enter these in the unelevated YukMain Bridge app. One-time, 3-minute code.</small></div>}
       {pairingError && <small role="alert">{pairingError}</small>}
       {agentPaired && <small>Browser Host Receiver disabled while Agent paired. Approvals remain available.</small>}
     </div>}
     {role === 'host' ? <>
+      <label className="instant-toggle"><input type="checkbox" checked={instantJoin} onChange={event => void toggleInstantJoin(event.target.checked)}/><span><strong>Instant controller join</strong><small>Guests with this room link automatically get the next free P2–P4 slot. Turn off to require manual approval.</small></span></label>
+      {instantError && <small role="alert">{instantError}</small>}
       <div className="relay-debug-players">
-        <strong>Control requests</strong>
+        <strong>Players</strong>
         {players.length === 0 && <small>No requests yet. Join this room from another browser.</small>}
         {players.map(p => <div className="relay-debug-player" key={p.id}>
           <span>{p.id.slice(0, 8)} · {p.status} {p.slot ? `(P${p.slot})` : ''} {p.connected ? '· online' : ''}</span>
@@ -260,8 +291,6 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
                 onClick={() => input([])}>Release all</button>
       </div>
     </>}
-    <div className="relay-debug-log" aria-live="polite">
-      {events.length === 0 ? <small>Awaiting WebSocket events...</small> : events.map((event, i) => <div key={i}>{event}</div>)}
-    </div>
+    {role !== 'host' && <div className="relay-debug-log" aria-live="polite">{events.map((event, i) => <div key={i}>{event}</div>)}</div>}
   </section>;
 }
