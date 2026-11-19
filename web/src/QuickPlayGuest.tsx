@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserController, type ControllerSnapshot } from './BrowserController';
-import { Gamepad2, Keyboard, Settings2, WifiOff } from 'lucide-react';
+import { Gamepad2, Keyboard, WifiOff } from 'lucide-react';
 
 type JoinResult = { playerId: string; playerToken: string; slot: number; status: string; error?: string };
 type Props = { roomCode: string };
@@ -16,7 +16,6 @@ export function QuickPlayGuest({ roomCode }: Props) {
   const [connected, setConnected] = useState(false);
   const [approved, setApproved] = useState(false);
   const [status, setStatus] = useState('Connecting controller…');
-  const [settings, setSettings] = useState(false);
   const [device, setDevice] = useState<'keyboard' | 'gamepad'>('keyboard');
   const [retry, setRetry] = useState(0);
   const socket = useRef<WebSocket | null>(null);
@@ -95,18 +94,11 @@ export function QuickPlayGuest({ roomCode }: Props) {
   return <div className="quickplay-root">
     <div className="quickplay-badge" role="status" aria-live="polite">
       {connected && approved && player ?
-        <><Gamepad2 size={15}/><b>P{player.slot}</b><span>Connected</span></> :
+        <>{device === 'gamepad' ? <Gamepad2 size={15}/> : <Keyboard size={15}/>}<b>P{player.slot}</b><span>Connected · {device === 'gamepad' ? 'Gamepad' : 'Keyboard'}</span></> :
         <><WifiOff size={15}/><span>{status}</span></>}
-      <button className="quickplay-icon" type="button" aria-label="Controller settings"
-        aria-expanded={settings} onClick={() => setSettings(open => !open)}><Settings2 size={16}/></button>
     </div>
     {!connected && <button className="quickplay-retry" type="button"
       onClick={() => setRetry(v => v + 1)}>Retry connection</button>}
-    {connected && approved && <div className="quickplay-device">
-      {device === 'gamepad' ? <Gamepad2 size={13}/> : <Keyboard size={13}/>}
-      <span>{device === 'gamepad' ? 'Gamepad' : 'Keyboard'}</span>
-    </div>}
-    <BrowserController active={connected && approved} compact showSettings={settings}
-      send={send} onDeviceChange={setDevice}/>
+    <BrowserController active={connected && approved} send={send} onDeviceChange={setDevice}/>
   </div>;
 }
