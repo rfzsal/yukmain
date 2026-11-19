@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BrowserController, type ControllerSnapshot } from './BrowserController';
+import { BrowserController, type ControllerSnapshot, type InputMode, type InputDevice } from './BrowserController';
 import { Gamepad2, Keyboard, WifiOff } from 'lucide-react';
 
 type JoinResult = { playerId: string; playerToken: string; slot: number; status: string; error?: string };
@@ -16,7 +16,25 @@ export function QuickPlayGuest({ roomCode }: Props) {
   const [connected, setConnected] = useState(false);
   const [approved, setApproved] = useState(false);
   const [status, setStatus] = useState('Connecting controller…');
-  const [device, setDevice] = useState<'keyboard' | 'gamepad'>('keyboard');
+  const [device, setDevice] = useState<InputDevice>('keyboard');
+  const [mode, setMode] = useState<InputMode>('auto');
+  const [modeNotice, setModeNotice] = useState('');
+  const noticeTimer = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+  }, []);
+
+  const handleModeChange = useCallback((nextMode: InputMode, selected: InputDevice) => {
+    setMode(nextMode);
+    const notice = nextMode === 'auto' ? 'Auto detection · Keyboard ready'
+      : nextMode === 'keyboard' ? 'Keyboard locked · F9 for Auto'
+      : 'Gamepad locked · F9 for Auto';
+    setModeNotice(notice);
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setModeNotice(''), 2200);
+    setDevice(selected);
+  }, []);
   const [retry, setRetry] = useState(0);
   const socket = useRef<WebSocket | null>(null);
   const seq = useRef(0);
@@ -94,11 +112,13 @@ export function QuickPlayGuest({ roomCode }: Props) {
   return <div className="quickplay-root">
     <div className="quickplay-badge" role="status" aria-live="polite">
       {connected && approved && player ?
-        <>{device === 'gamepad' ? <Gamepad2 size={15}/> : <Keyboard size={15}/>}<b>P{player.slot}</b><span>Connected · {device === 'gamepad' ? 'Gamepad' : 'Keyboard'}</span></> :
+        <>{device === 'gamepad' ? <Gamepad2 size={15}/> : <Keyboard size={15}/>}<b>P{player.slot}</b><span>Connected · {device === 'gamepad' ? 'Gamepad' : 'Keyboard'}{mode === 'auto' ? '' : ' (Manual)'}</span></> :
         <><WifiOff size={15}/><span>{status}</span></>}
     </div>
     {!connected && <button className="quickplay-retry" type="button"
       onClick={() => setRetry(v => v + 1)}>Retry connection</button>}
-    <BrowserController active={connected && approved} send={send} onDeviceChange={setDevice}/>
+    {connected && approved && modeNotice && <div className="quickplay-mode-toast" role="status">{modeNotice}</div>}
+    <BrowserController active={connected && approved} send={send} onDeviceChange={setDevice}
+      onModeChange={handleModeChange}/>
   </div>;
 }

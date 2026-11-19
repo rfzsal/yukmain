@@ -143,3 +143,6 @@ footer{display:flex;justify-content:space-between;color:#71809d;font-size:11px;p
 /* Guest stream is watch-only: never allow the VDO.Ninja iframe to take input. */
 .viewer .viewframe{pointer-events:none}
 .viewer:focus{outline:none}
+
+/* Short-lived status feedback for F8/F9 manual controller overrides. */
+.quickplay-mode-toast{pointer-events:none;background:#111a2ce8;border:1px solid #7283a166;border-radius:9px;padding:8px 12px;color:#f1f5ff;font-size:12px;backdrop-filter:blur(12px)}
