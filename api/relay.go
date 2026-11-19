@@ -277,11 +277,11 @@ func (s *server) relaySocket(w http.ResponseWriter, r *http.Request) {
         if player!=nil { slot=player.Slot }
         if player!=nil && player.Conn==conn {
             player.Conn=nil
-            if player.Instant {
-                player.Approved=false
-                player.Slot=0
-                delete(entry.Players,player.ID)
-            }
+            // Release disconnected slots for both manual and instant players.
+            // The old manual player record remains pending for host reapproval.
+            player.Approved=false
+            player.Slot=0
+            if player.Instant { delete(entry.Players,player.ID) }
         }
         s.mu.Unlock()
         if player!=nil && wasApproved && host!=nil {
