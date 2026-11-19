@@ -14,6 +14,7 @@ function relayUrl(code: string, id: string) {
 export function QuickPlayGuest({ roomCode }: Props) {
   const [player, setPlayer] = useState<JoinResult | null>(null);
   const [connected, setConnected] = useState(false);
+  const [approved, setApproved] = useState(false);
   const [status, setStatus] = useState('Connecting controller…');
   const [settings, setSettings] = useState(false);
   const [device, setDevice] = useState<'keyboard' | 'gamepad'>('keyboard');
@@ -26,31 +27,42 @@ export function QuickPlayGuest({ roomCode }: Props) {
     let ws: WebSocket | null = null;
     setPlayer(null);
     setConnected(false);
+    setApproved(false);
     setStatus('Finding available controller…');
     seq.current = 0;
 
     async function connect() {
       try {
-        const result = await fetch(`/api/rooms/${roomCode}/players/instant`, { method: 'POST', cache: 'no-store' });
+        let result = await fetch(`/api/rooms/${roomCode}/players/instant`, { method: 'POST', cache: 'no-store' });
+        // When the host disables instant join, keep the same simple guest view
+        // but use the existing manual host approval endpoint.
+        if (result.status === 403) {
+          result = await fetch(`/api/rooms/${roomCode}/players`, { method: 'POST', cache: 'no-store' });
+        }
         const data = await result.json() as JoinResult;
         if (!result.ok) throw new Error(data.error ?? 'Unable to claim a controller');
         if (cancelled) return;
         setPlayer(data);
-        setStatus('Connecting…');
+        setStatus(data.status === 'approved' ? 'Connecting…' : 'Waiting for host approval…');
         ws = new WebSocket(relayUrl(roomCode, data.playerId), [
           'yukmain.v1', `yukmain-player.${data.playerToken}`,
         ]);
         socket.current = ws;
-        ws.onopen = () => { if (!cancelled) { setConnected(true);setStatus('Connected'); } };
+        ws.onopen = () => { if (!cancelled) { setConnected(true);setApproved(data.status === 'approved');setStatus(data.status === 'approved' ? 'Connected' : 'Waiting for host approval…'); } };
         ws.onmessage = event => {
           try {
             const message = JSON.parse(String(event.data)) as { type: string; status?: string; slot?: number };
             if (cancelled) return;
             if (message.type === 'player.status') {
               if (message.status === 'approved') {
-                setPlayer(p => p ? { ...p, slot: message.slot ?? p.slot } : p);
-              } else {
-                setConnected(false);
+                setApproved(true);
+                setStatus('Connected');
+                setPlayer(p => p ? { ...p, slot: message.slot ?? p.slot, status: 'approved' } : p);
+              } else if (message.status === 'pending') {
+                setApproved(false);
+                setStatus('Waiting for host approval…');
+              } else if (message.status === 'rejected') {
+                setApproved(false);
                 setStatus('Controller access revoked');
                 ws?.close();
               }
@@ -61,6 +73,7 @@ export function QuickPlayGuest({ roomCode }: Props) {
         ws.onclose = () => {
           if (!cancelled) {
             setConnected(false);
+            setApproved(false);
             setStatus('Disconnected. Reconnect to play.');
           }
         };
@@ -73,15 +86,15 @@ export function QuickPlayGuest({ roomCode }: Props) {
   }, [roomCode, retry]);
 
   const send = useCallback((snapshot: ControllerSnapshot) => {
-    if (!connected || !player || socket.current?.readyState !== WebSocket.OPEN) return;
+    if (!connected || !approved || !player || socket.current?.readyState !== WebSocket.OPEN) return;
     if (socket.current.bufferedAmount > 64 * 1024) return;
     seq.current += 1;
     socket.current.send(JSON.stringify({ type: 'controller.state', seq: seq.current, ...snapshot }));
-  }, [connected, player]);
+  }, [connected, approved, player]);
 
   return <div className="quickplay-root">
     <div className="quickplay-badge" role="status" aria-live="polite">
-      {connected && player ?
+      {connected && approved && player ?
         <><Gamepad2 size={15}/><b>P{player.slot}</b><span>Connected</span></> :
         <><WifiOff size={15}/><span>{status}</span></>}
       <button className="quickplay-icon" type="button" aria-label="Controller settings"
@@ -89,11 +102,11 @@ export function QuickPlayGuest({ roomCode }: Props) {
     </div>
     {!connected && <button className="quickplay-retry" type="button"
       onClick={() => setRetry(v => v + 1)}>Retry connection</button>}
-    {connected && <div className="quickplay-device">
+    {connected && approved && <div className="quickplay-device">
       {device === 'gamepad' ? <Gamepad2 size={13}/> : <Keyboard size={13}/>}
       <span>{device === 'gamepad' ? 'Gamepad' : 'Keyboard'}</span>
     </div>}
-    <BrowserController active={connected} compact showSettings={settings}
+    <BrowserController active={connected && approved} compact showSettings={settings}
       send={send} onDeviceChange={setDevice}/>
   </div>;
 }
