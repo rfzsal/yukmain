@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { BrowserController, type ControllerSnapshot } from './BrowserController';
 
 type Role = 'host' | 'player';
 type Player = { id: string; status: string; slot: number; connected: boolean };
@@ -95,7 +96,7 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
   }
 
   useEffect(() => {
-    if (!enabled || role !== 'host' || !hostToken) return;
+    if (role !== 'host' || !hostToken) return;
     let active = true;
     const refresh = async () => {
       try {
@@ -113,10 +114,10 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
     void refresh();
     const timer = window.setInterval(() => void refresh(), 5000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [enabled, role, roomCode, hostToken, log]);
+  }, [role, roomCode, hostToken, log]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled && role === 'host') return;
     if (role === 'host' && (!hostToken || agentPaired)) return;
     if (role === 'player' && (!playerToken || !playerId)) return;
 
@@ -200,6 +201,12 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
     } catch (error) { log(`Approval failed: ${messageOf(error)}`); }
   }
 
+  const sendController = useCallback((state: ControllerSnapshot) => {
+    if (!connected || status !== 'approved' || socketRef.current?.readyState !== WebSocket.OPEN) return;
+    seqRef.current += 1;
+    socketRef.current.send(JSON.stringify({ type: 'controller.state', seq: seqRef.current, ...state }));
+  }, [connected, status]);
+
   function input(buttons: string[]) {
     if (!connected || status !== 'approved' || socketRef.current?.readyState !== WebSocket.OPEN) return;
     seqRef.current += 1;
@@ -211,7 +218,7 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
     log(`P${slot}: sent ${buttons.join(', ') || 'neutral'} · seq ${seqRef.current}`);
   }
 
-  if (!enabled && role !== 'host') return null;
+  
 
   return <section className="relay-debug">
     <div className="relay-debug-head">
@@ -245,6 +252,7 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
         <span>Status: {status} {slot ? `· P${slot}` : ''}</span>
         {!playerToken && <button className="secondary" onClick={() => void requestControl()}>Request controller</button>}
       </div>
+      <BrowserController active={connected && status === 'approved'} send={sendController}/>
       <div className="relay-debug-buttons">
         <button className="secondary" disabled={!connected || status !== 'approved'}
                 onClick={() => input(['A'])}>Press A</button>
