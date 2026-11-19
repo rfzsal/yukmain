@@ -29,7 +29,6 @@ function messageOf(error: unknown): string {
 }
 
 export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
-  const [enabled, setEnabled] = useState(false);
   const [instantJoin, setInstantJoin] = useState(false);
   const [instantError, setInstantError] = useState('');
   const [connected, setConnected] = useState(false);
@@ -49,16 +48,6 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
   const log = useCallback((text: string) => {
     setEvents(previous => [`${new Date().toLocaleTimeString()} · ${text}`, ...previous].slice(0, 16));
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/relay/config', { cache: 'no-store' })
-      .then(async response => response.ok ? response.json() as Promise<{ enabled: boolean }> : { enabled: false })
-      .then(config => { if (active) setEnabled(config.enabled === true); })
-      .catch(() => { if (active) setEnabled(false); });
-    return () => { active = false; };
-  }, []);
-
 
   useEffect(() => {
     if (role !== 'host' || !hostToken) return;
@@ -146,14 +135,11 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
   }, [role, roomCode, hostToken, log]);
 
   useEffect(() => {
-    if (role === 'host') return; // A Windows Agent owns the receiver; never connect browser debugging.
-    if (role === 'host' && (!hostToken || agentPaired)) return;
-    if (role === 'player' && (!playerToken || !playerId)) return;
+    if (role !== 'player' || !playerToken || !playerId) return;
 
-    const token = role === 'host' ? hostToken! : playerToken;
-    const ws = new WebSocket(socketUrl(roomCode, role, role === 'player' ? playerId : undefined), [
+    const ws = new WebSocket(socketUrl(roomCode, 'player', playerId), [
       'yukmain.v1',
-      `yukmain-${role}.${token}`,
+      `yukmain-player.${playerToken}`,
     ]);
     socketRef.current = ws;
     setStatus('connecting');
@@ -164,7 +150,7 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
     ws.onmessage = event => {
       try {
         const packet = JSON.parse(String(event.data)) as RelayEvent;
-        if (packet.type === 'player.status' && role === 'player') {
+        if (packet.type === 'player.status') {
           setStatus(packet.status ?? 'pending');
           setSlot(packet.slot ?? 0);
         } else if (packet.type === 'controller.state') {
@@ -173,7 +159,6 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
           log(`P${packet.slot}: neutral reset`);
         } else if (packet.type === 'connection.ready') {
           log(`Authenticated as ${packet.role}`);
-          if (role === 'host') setStatus('connected');
         } else if (packet.type === 'input.rejected') {
           log(`Input rejected: ${packet.reason}`);
         } else {
@@ -193,7 +178,7 @@ export function RelayDebugPanel({ role, roomCode, hostToken }: Props) {
       if (socketRef.current === ws) socketRef.current = null;
       ws.close();
     };
-  }, [enabled, role, roomCode, hostToken, playerId, playerToken, agentPaired, log]);
+  }, [role, roomCode, playerId, playerToken, log]);
 
   async function requestControl() {
     try {
