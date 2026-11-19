@@ -151,7 +151,13 @@ export function BrowserController({ active, send }: Props) {
         onClick={() => setDevice('gamepad')}>Physical gamepad</button>
     </div>
     {device === 'keyboard' ?
-      <small>WASD: left stick · Arrows: D-pad · J/K/U/I: A/B/X/Y · Q/E: LB/RB · 1/2: LT/RT · Enter: Start · Backspace: Back · Z/C: stick clicks</small> :
+      <>
+        <button className="secondary controller-focus" type="button" disabled={!active}
+          onClick={event => event.currentTarget.focus()}>
+          Click to focus keyboard controls
+        </button>
+        <small>Keep the browser page focused (not the embedded video). WASD: left stick · Arrows: D-pad · J/K/U/I: A/B/X/Y · Q/E: LB/RB · 1/2: LT/RT · Enter: Start · Backspace: Back · Z/C: stick clicks</small>
+      </> :
       <div>
         <label htmlFor="yukmain-gamepad">Connected gamepad</label>
         <select id="yukmain-gamepad" value={selected ?? ''} onChange={event => setSelected(Number(event.target.value))}>
