@@ -75,11 +75,32 @@ function gamepadState(pad: Gamepad): ControllerSnapshot {
   return state;
 }
 
-// A deliberately higher threshold for *switching* devices than for playing:
-// tiny analog drift must not steal control from the keyboard.
-function intentionalGamepadInput(pad: Gamepad): boolean {
-  return pad.buttons.some(button => button.pressed || button.value > 0.35) ||
-    pad.axes.some(value => Number.isFinite(value) && Math.abs(value) > 0.4);
+// Observe input *changes*, never a constant, potentially non-zero idle axis.
+// Some browser/driver combinations expose resting axes at -1 or +1.
+type GamepadActivity = {
+  previousButtons: number[];
+  referenceAxes: number[];
+};
+function buttonValue(button: GamepadButton): number {
+  return button.pressed ? 1 : Number.isFinite(button.value) ? button.value : 0;
+}
+function freshGamepadInput(pad: Gamepad, previous: GamepadActivity): boolean {
+  const pressed = pad.buttons.some((button, index) =>
+    buttonValue(button) >= 0.65 && (previous.previousButtons[index] ?? 0) < 0.35);
+  const moved = pad.axes.some((axisValue, index) =>
+    Number.isFinite(axisValue) &&
+    Math.abs(axisValue) >= 0.45 &&
+    Math.abs(axisValue - (previous.referenceAxes[index] ?? axisValue)) >= 0.4);
+  return pressed || moved;
+}
+function rememberButtons(pad: Gamepad, previous: GamepadActivity) {
+  previous.previousButtons = pad.buttons.map(buttonValue);
+}
+function observedPad(pad: Gamepad): GamepadActivity {
+  return {
+    previousButtons: pad.buttons.map(buttonValue),
+    referenceAxes: [...pad.axes],
+  };
 }
 
 type Props = {
@@ -108,13 +129,20 @@ export function BrowserController({ active: enabled, send, onDeviceChange }: Pro
     let selectedPad: number | null = null;
     let lastIdle = 0;
     const keys = new Set<string>();
-    const armedPads = new Map<number, boolean>();
+    const activity = new Map<number, GamepadActivity>();
     changedRef.current?.('keyboard');
 
     function switchTo(next: InputDevice, pad: number | null = null) {
       if (device === next && (next !== 'gamepad' || selectedPad === pad)) return;
       sendRef.current(neutralState());
       keys.clear();
+      if (next === 'keyboard') {
+        // Treat all currently held physical inputs as the new baseline.
+        // They cannot steal control back until the user moves/presses again.
+        for (const pad of Array.from(navigator.getGamepads?.() ?? [])) {
+          if (pad?.connected && pad.mapping === 'standard') activity.set(pad.index, observedPad(pad));
+        }
+      }
       device = next;
       selectedPad = pad;
       changedRef.current?.(next);
@@ -122,8 +150,9 @@ export function BrowserController({ active: enabled, send, onDeviceChange }: Pro
     function clear() {
       keys.clear();
       sendRef.current(neutralState());
-      // Require a new physical actuation when the page returns.
-      armedPads.clear();
+      // On focus return, establish a fresh baseline; do not interpret
+      // currently held inputs or unusual idle axis values as user activity.
+      activity.clear();
     }
     function onKeyDown(event: KeyboardEvent) {
       if (!controlKeys.has(event.code) || event.ctrlKey || event.altKey || event.metaKey ||
@@ -157,16 +186,30 @@ export function BrowserController({ active: enabled, send, onDeviceChange }: Pro
       const pads = Array.from(navigator.getGamepads?.() ?? [])
         .filter((pad): pad is Gamepad => pad !== null && pad.connected && pad.mapping === 'standard');
       const present = new Set(pads.map(pad => pad.index));
-      for (const index of armedPads.keys()) {
-        if (!present.has(index)) armedPads.delete(index);
+      for (const index of activity.keys()) {
+        if (!present.has(index)) activity.delete(index);
       }
       for (const pad of pads) {
-        const intentional = intentionalGamepadInput(pad);
-        const previouslyActive = armedPads.get(pad.index) ?? false;
-        if (intentional && !previouslyActive && (device !== 'gamepad' || selectedPad !== pad.index)) {
+        const previous = activity.get(pad.index);
+        if (!previous) {
+          // Establish a baseline on connection rather than switching from
+          // a pre-existing button press or an off-centre resting axis.
+          activity.set(pad.index, observedPad(pad));
+          continue;
+        }
+        const intentional = freshGamepadInput(pad, previous);
+        rememberButtons(pad, previous);
+        if (intentional && (device !== 'gamepad' || selectedPad !== pad.index)) {
           switchTo('gamepad', pad.index);
         }
-        armedPads.set(pad.index, intentional);
+        // A near-resting axis position is eligible to become the new origin;
+        // don't continuously track significant movement or slow stick motion
+        // would never exceed the gesture threshold.
+        if (!intentional && device !== 'gamepad') {
+          pad.axes.forEach((value, index) => {
+            if (Math.abs(value) < 0.18) previous.referenceAxes[index] = value;
+          });
+        }
       }
       const selected = pads.find(pad => pad.index === selectedPad);
       if (device === 'gamepad' && !selected) switchTo('keyboard');
