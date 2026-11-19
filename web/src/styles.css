@@ -112,3 +112,11 @@ footer{display:flex;justify-content:space-between;color:#71809d;font-size:11px;p
 .relay-debug-log { max-height:165px; overflow:auto; display:grid; gap:4px; padding:10px; background:#0c1421; border-radius:8px; font:12px/1.5 ui-monospace,monospace; color:#b7d7f1; margin-top:14px; overflow-wrap:anywhere; }
 .relay-debug-viewer { position:absolute; z-index:20; top:85px; right:15px; width:min(420px,calc(100% - 30px)); max-height:60vh; overflow:auto; }
 .relay-debug-viewer .relay-debug { margin-top:0; }
+
+/* Phase 4 playable controller settings. */
+.browser-controller{display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid #485977;border-radius:12px;background:#101a2d}
+.browser-controller small{display:block;color:#aebdd4;font-size:11px;line-height:1.65}
+.controller-devices{display:flex;flex-wrap:wrap;gap:8px}
+.controller-devices button[aria-pressed="true"]{background:#604bb3;border-color:#b09cff;color:#fff}
+.browser-controller label{display:block;font-size:11px;margin-bottom:6px}
+.browser-controller select{width:100%;min-width:0;background:#17243a;border:1px solid #526184;border-radius:8px;color:#f1f5ff;padding:9px;margin-bottom:8px}
