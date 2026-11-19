@@ -32,6 +32,10 @@ type room struct {
 	Live          bool
 	Players map[string]*relayPlayer
 	HostWS *relayConn
+    HostKind string
+    PairingHash [32]byte
+    PairingExpires time.Time
+    AgentTokenHash [32]byte
 }
 
 type rateEntry struct {
@@ -76,15 +80,18 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/rooms/{code}", s.setRoomStatus)
 	mux.HandleFunc("POST /api/rooms/{code}/heartbeat", s.heartbeat)
 	mux.HandleFunc("DELETE /api/rooms/{code}", s.deleteRoom)
+    mux.HandleFunc("POST /api/rooms/{code}/pairing", s.initiatePairing)
+    mux.HandleFunc("POST /api/rooms/{code}/pairing/redeem", s.redeemPairing)
+    mux.HandleFunc("GET /api/rooms/{code}/pairing", s.pairingStatus)
+    mux.HandleFunc("GET /api/rooms/{code}/relay", s.relaySocket)
+    mux.HandleFunc("POST /api/rooms/{code}/players", s.registerPlayer)
+    mux.HandleFunc("GET /api/rooms/{code}/players", s.listPlayers)
+    mux.HandleFunc("PATCH /api/rooms/{code}/players/{id}", s.approvePlayer)
     // The browser debug panel is opt-in; authenticated relay and pairing work without it.
     if os.Getenv("YUKMAIN_RELAY_DEBUG") == "1" {
         mux.HandleFunc("GET /api/relay/config", func(w http.ResponseWriter, _ *http.Request) {
             writeJSON(w, 200, map[string]bool{"enabled": true})
         })
-        mux.HandleFunc("POST /api/rooms/{code}/players", s.registerPlayer)
-        mux.HandleFunc("GET /api/rooms/{code}/players", s.listPlayers)
-        mux.HandleFunc("PATCH /api/rooms/{code}/players/{id}", s.approvePlayer)
-        mux.HandleFunc("GET /api/rooms/{code}/relay", s.relaySocket)
     }
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

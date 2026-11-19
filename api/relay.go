@@ -203,7 +203,7 @@ func protocolToken(r *http.Request, role string) string {
 func (s *server) relaySocket(w http.ResponseWriter, r *http.Request) {
     code:=r.PathValue("code")
     role:=r.URL.Query().Get("role")
-    if !validCode(code) || (role!="host" && role!="player") {
+    if !validCode(code) || (role!="host" && role!="player" && role!="agent") {
         writeError(w, 400, "Invalid room or role."); return
     }
     token:=protocolToken(r,role)
@@ -219,8 +219,15 @@ func (s *server) relaySocket(w http.ResponseWriter, r *http.Request) {
         s.mu.Unlock(); writeError(w,404,"Room unavailable."); return
     }
     var player *relayPlayer
-    if role=="host" {
-        if subtle.ConstantTimeCompare(hash[:],entry.HostTokenHash[:])!=1 {
+    if role=="host" || role=="agent" {
+        expected:=entry.HostTokenHash
+        if role=="agent" {
+            expected=entry.AgentTokenHash
+            if expected==[32]byte{} {
+                s.mu.Unlock(); writeError(w,401,"Agent not paired."); return
+            }
+        }
+        if subtle.ConstantTimeCompare(hash[:],expected[:])!=1 {
             s.mu.Unlock(); writeError(w,401,"Unauthorized."); return
         }
         if entry.HostWS!=nil {
@@ -247,13 +254,16 @@ func (s *server) relaySocket(w http.ResponseWriter, r *http.Request) {
     ws,err:=relayUpgrader.Upgrade(w,r,nil)
     if err!=nil { s.mu.Unlock(); return }
     conn:=&relayConn{socket:ws}
-    if role=="host" { entry.HostWS=conn } else { player.Conn=conn }
+    if role=="host" || role=="agent" {
+        entry.HostWS=conn
+        entry.HostKind=role
+    } else { player.Conn=conn }
     s.mu.Unlock()
 
     defer func() {
         s.mu.Lock()
-        if role=="host" {
-            if entry.HostWS==conn { entry.HostWS=nil }
+        if role=="host" || role=="agent" {
+            if entry.HostWS==conn { entry.HostWS=nil; entry.HostKind="" }
         } else if player.Conn==conn {
             player.Conn=nil
         }
@@ -301,7 +311,7 @@ func (s *server) relaySocket(w http.ResponseWriter, r *http.Request) {
     for {
         _,payload,err:=ws.ReadMessage()
         if err!=nil { return }
-        if role=="host" { continue } // Host debug receiver never injects inputs.
+        if role=="host" || role=="agent" { continue } // Receivers never inject inputs.
         var state controllerState
         if json.Unmarshal(payload,&state)!=nil || !state.validate() {
             _=conn.send(map[string]any{"type":"input.rejected","reason":"invalid_state"})

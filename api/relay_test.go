@@ -79,7 +79,7 @@ func TestRelayDisabledByDefault(t *testing.T) {
     t.Setenv("YUKMAIN_RELAY_DEBUG","0")
     s:=newServer()
     w:=apiRequest(s.routes(),"GET","/api/relay/config","",nil)
-    if w.Code!=404 {t.Fatalf("relay must be disabled by default, got %d",w.Code)}
+    if w.Code!=404 {t.Fatalf("debug UI must be disabled by default, got %d",w.Code)}
 }
 
 func TestRelayAuthorizationAndDelivery(t *testing.T) {
