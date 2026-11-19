@@ -103,79 +103,132 @@ function observedPad(pad: Gamepad): GamepadActivity {
   };
 }
 
+export type InputMode = 'auto' | 'keyboard' | 'gamepad';
 type Props = {
   active: boolean;
   send: (state: ControllerSnapshot) => void;
   onDeviceChange?: (device: InputDevice) => void;
+  onModeChange?: (mode: InputMode, device: InputDevice) => void;
 };
 
+const KEYBOARD_GRACE_MS = 1500;
+
 /**
- * A single controller sender owns both input sources. Keyboard is always the
- * initial source. A fresh gamepad actuation or keyboard keydown changes it.
- * Source transitions release the previous input before sending the new one.
+ * Keyboard-first automatic input with an explicit manual fallback.
+ * F8: lock the opposite source (Keyboard <-> Gamepad).
+ * F9: restore Auto, with Keyboard as initial source.
+ * Only the currently selected source ever sends input snapshots.
  */
-export function BrowserController({ active: enabled, send, onDeviceChange }: Props) {
+export function BrowserController({ active: enabled, send, onDeviceChange, onModeChange }: Props) {
   const sendRef = useRef(send);
   const changedRef = useRef(onDeviceChange);
+  const modeRef = useRef(onModeChange);
   sendRef.current = send;
   changedRef.current = onDeviceChange;
+  modeRef.current = onModeChange;
 
   useEffect(() => {
     if (!enabled) {
       changedRef.current?.('keyboard');
       return;
     }
+
     let device: InputDevice = 'keyboard';
+    let mode: InputMode = 'auto';
     let selectedPad: number | null = null;
     let lastIdle = 0;
+    let lastKeyboardActivity = performance.now();
     const keys = new Set<string>();
     const activity = new Map<number, GamepadActivity>();
     changedRef.current?.('keyboard');
 
-    function switchTo(next: InputDevice, pad: number | null = null) {
-      if (device === next && (next !== 'gamepad' || selectedPad === pad)) return;
+    function standardPads(): Gamepad[] {
+      return Array.from(navigator.getGamepads?.() ?? [])
+        .filter((pad): pad is Gamepad => pad !== null && pad.connected && pad.mapping === 'standard');
+    }
+
+    // Rebaseline all reported pads to avoid virtual feedback being interpreted
+    // as a fresh gamepad press immediately after keyboard activity.
+    function rebaselinePads() {
+      for (const pad of standardPads()) activity.set(pad.index, observedPad(pad));
+    }
+
+    function switchTo(next: InputDevice, padIndex: number | null = null) {
+      if (device === next && (next !== 'gamepad' || selectedPad === padIndex)) return;
       sendRef.current(neutralState());
       keys.clear();
-      if (next === 'keyboard') {
-        // Treat all currently held physical inputs as the new baseline.
-        // They cannot steal control back until the user moves/presses again.
-        for (const pad of Array.from(navigator.getGamepads?.() ?? [])) {
-          if (pad?.connected && pad.mapping === 'standard') activity.set(pad.index, observedPad(pad));
-        }
-      }
       device = next;
-      selectedPad = pad;
+      selectedPad = next === 'gamepad' ? padIndex : null;
+      if (next === 'keyboard') rebaselinePads();
       changedRef.current?.(next);
     }
+
+    function changeMode(next: InputMode) {
+      const previousMode = mode;
+      mode = next;
+      if (next === 'auto') {
+        switchTo('keyboard');
+        lastKeyboardActivity = performance.now();
+      } else if (next === 'keyboard') {
+        switchTo('keyboard');
+      } else {
+        const pads = standardPads();
+        const preferred = pads.find(pad => pad.index === selectedPad) ?? pads[0];
+        switchTo('gamepad', preferred?.index ?? null);
+      }
+      if (mode !== previousMode) modeRef.current?.(mode, device);
+    }
+
     function clear() {
       keys.clear();
       sendRef.current(neutralState());
-      // On focus return, establish a fresh baseline; do not interpret
-      // currently held inputs or unusual idle axis values as user activity.
       activity.clear();
     }
+
     function onKeyDown(event: KeyboardEvent) {
+      if (event.code === 'F8' || event.code === 'F9') {
+        if (event.ctrlKey || event.altKey || event.metaKey) return;
+        const target = event.target;
+        if (target instanceof HTMLElement &&
+            (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+        event.preventDefault();
+        if (event.repeat) return;
+        if (event.code === 'F9') changeMode('auto');
+        else changeMode(device === 'keyboard' ? 'gamepad' : 'keyboard');
+        return;
+      }
       if (!controlKeys.has(event.code) || event.ctrlKey || event.altKey || event.metaKey ||
           document.hidden || !document.hasFocus()) return;
       const target = event.target;
       if (target instanceof HTMLElement &&
           (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName))) return;
       event.preventDefault();
-      if (event.repeat) return;
-      if (device !== 'keyboard') switchTo('keyboard');
-      keys.add(event.code);
-      sendRef.current(keyboardState(keys));
-    }
-    function onKeyUp(event: KeyboardEvent) {
-      if (!controlKeys.has(event.code)) return;
-      if (device === 'keyboard' && keys.delete(event.code)) {
-        event.preventDefault();
+      // A mapped keyboard key establishes priority even in the event of
+      // gamepad feedback occurring in the same frame.
+      if (mode === 'auto' || mode === 'keyboard') {
+        lastKeyboardActivity = performance.now();
+        if (mode === 'auto' && device !== 'keyboard') switchTo('keyboard');
+        if (!event.repeat) keys.add(event.code);
+        rebaselinePads();
         sendRef.current(keyboardState(keys));
       }
     }
+
+    function onKeyUp(event: KeyboardEvent) {
+      if (!controlKeys.has(event.code)) return;
+      if (keys.has(event.code)) {
+        event.preventDefault();
+        keys.delete(event.code);
+        lastKeyboardActivity = performance.now();
+        if (device === 'keyboard') sendRef.current(keyboardState(keys));
+        rebaselinePads();
+      }
+    }
+
     function onVisibility() {
       if (document.hidden) clear();
     }
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', clear);
@@ -183,38 +236,52 @@ export function BrowserController({ active: enabled, send, onDeviceChange }: Pro
 
     const timer = window.setInterval(() => {
       if (document.hidden || !document.hasFocus()) return;
-      const pads = Array.from(navigator.getGamepads?.() ?? [])
-        .filter((pad): pad is Gamepad => pad !== null && pad.connected && pad.mapping === 'standard');
+      const pads = standardPads();
       const present = new Set(pads.map(pad => pad.index));
       for (const index of activity.keys()) {
         if (!present.has(index)) activity.delete(index);
       }
+
+      const protectedKeyboard = keys.size > 0 ||
+        performance.now() - lastKeyboardActivity < KEYBOARD_GRACE_MS;
       for (const pad of pads) {
         const previous = activity.get(pad.index);
         if (!previous) {
-          // Establish a baseline on connection rather than switching from
-          // a pre-existing button press or an off-centre resting axis.
+          activity.set(pad.index, observedPad(pad));
+          continue;
+        }
+        // During keyboard ownership, track virtual-gamepad state so that it
+        // cannot become a delayed gamepad switch when the grace period ends.
+        if (protectedKeyboard && mode === 'auto') {
           activity.set(pad.index, observedPad(pad));
           continue;
         }
         const intentional = freshGamepadInput(pad, previous);
         rememberButtons(pad, previous);
-        if (intentional && (device !== 'gamepad' || selectedPad !== pad.index)) {
+        if (mode === 'auto' && intentional && (device !== 'gamepad' || selectedPad !== pad.index)) {
           switchTo('gamepad', pad.index);
         }
-        // A near-resting axis position is eligible to become the new origin;
-        // don't continuously track significant movement or slow stick motion
-        // would never exceed the gesture threshold.
         if (!intentional && device !== 'gamepad') {
           pad.axes.forEach((value, index) => {
             if (Math.abs(value) < 0.18) previous.referenceAxes[index] = value;
           });
         }
       }
-      const selected = pads.find(pad => pad.index === selectedPad);
-      if (device === 'gamepad' && !selected) switchTo('keyboard');
 
-      const state = device === 'gamepad' && selected ? gamepadState(selected) : keyboardState(keys);
+      const selected = pads.find(pad => pad.index === selectedPad);
+      if (device === 'gamepad' && !selected) {
+        if (mode === 'auto') switchTo('keyboard');
+        else if (mode === 'gamepad' && pads.length > 0) switchTo('gamepad', pads[0].index);
+        else if (mode === 'gamepad') selectedPad = null; // Keep explicit manual gamepad mode.
+      }
+      if (device === 'gamepad' && selectedPad === null && mode === 'gamepad' && pads.length > 0) {
+        selectedPad = pads[0].index;
+      }
+
+      const currentPad = pads.find(pad => pad.index === selectedPad);
+      const state = device === 'gamepad' && currentPad
+        ? gamepadState(currentPad)
+        : device === 'keyboard' ? keyboardState(keys) : neutralState();
       const now = performance.now();
       if (active(state) || now - lastIdle >= 500) {
         sendRef.current(state);
