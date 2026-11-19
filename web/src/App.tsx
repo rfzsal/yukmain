@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, Fullscreen, LoaderCir
 import { api, type HostRoom, type RoomData } from './api';
 import { hostVdoUrl, viewerVdoUrl } from './vdo';
 import { RelayDebugPanel } from './RelayDebugPanel';
+import { QuickPlayGuest } from './QuickPlayGuest';
 
 type Mode = 'home' | 'host' | 'viewer';
 const HOST_KEY = 'yukmain-active-host';
@@ -36,6 +37,8 @@ export default function App() {
   const [copied, setCopied] = useState('');
   const [captureVersion, setCaptureVersion] = useState(0);
   const [controls, setControls] = useState(true);
+  const [hudVisible, setHudVisible] = useState(true);
+  const hudTimer = useRef<number | null>(null);
   const viewerRef = useRef<HTMLDivElement>(null);
   const autoJoined = useRef(false);
 
@@ -125,6 +128,16 @@ export default function App() {
     try { await navigator.clipboard.writeText(value); setCopied(label); setTimeout(() => setCopied(''), 2000); }
     catch { setError('Tidak dapat menyalin. Silakan salin secara manual.'); }
   }
+  const revealHud = () => {
+    setHudVisible(true);
+    if (hudTimer.current !== null) window.clearTimeout(hudTimer.current);
+    hudTimer.current = window.setTimeout(() => setHudVisible(false), 2200);
+  };
+  useEffect(() => {
+    if (mode === 'viewer') revealHud();
+    return () => { if (hudTimer.current !== null) window.clearTimeout(hudTimer.current); };
+  }, [mode]);
+
   async function fullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -137,7 +150,7 @@ export default function App() {
   }
 
   if (mode === 'viewer' && viewer) return (
-    <div className="viewer" ref={viewerRef}>
+    <div className="viewer" ref={viewerRef} data-hud-visible={hudVisible ? "true" : "false"} onPointerMove={revealHud} onPointerDown={revealHud}>
       <iframe className="viewframe" src={viewerVdoUrl(viewer.streamId)} title="YukMain stream" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen referrerPolicy="no-referrer"/>
       {viewer.status !== 'live' && <div className="waiting"><div className="spinner"/><h2>Menunggu host membagikan layar</h2><p>Room {prettyCode(viewer.code)} siap. Stream akan muncul saat host mulai siaran.</p></div>}
       {controls ? <div className="viewer-ui">
@@ -145,7 +158,7 @@ export default function App() {
         <div className="viewer-bottom"><span className="live-label">{viewer.status === 'live' ? '● HOST LIVE' : '● MENUNGGU HOST'}</span><div className="buttons"><button className="secondary" onClick={fullscreen}><Fullscreen size={17}/> Fullscreen</button><button className="secondary" onClick={exitViewer}><ArrowLeft size={17}/> Keluar</button></div></div>
       </div> : <button className="reveal" onClick={() => setControls(true)}>Tampilkan kontrol</button>}
       {error && <div className="toast">{error}<button onClick={() => setError('')}><X size={16}/></button></div>}
-      <div className="relay-debug-viewer"><RelayDebugPanel role="player" roomCode={viewer.code}/></div>
+      <QuickPlayGuest roomCode={viewer.code}/>
     </div>
   );
 

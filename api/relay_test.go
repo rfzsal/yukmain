@@ -169,3 +169,78 @@ func TestRelayInvalidApproval(t *testing.T) {
     w=apiRequest(fixture.handler,"PATCH",path,"invalid",bytes.TrimSpace([]byte(`{"approved":true,"slot":2}`)))
     if w.Code!=404 {t.Fatalf("invalid host authorization accepted: %d",w.Code)}
 }
+
+func TestInstantControllerSlotsAndReclaim(t *testing.T) {
+    fixture:=newRelayFixture(t)
+    path:="/api/rooms/"+fixture.code
+    // Host-only opt in. A visitor cannot change controller permissions.
+    body:=[]byte(`{"enabled":true}`)
+    w:=apiRequest(fixture.handler,"PATCH",path+"/controls","bad",body)
+    if w.Code!=404 {t.Fatalf("visitor enabled controllers: %d",w.Code)}
+    w=apiRequest(fixture.handler,"POST",path+"/players/instant","",nil)
+    if w.Code!=403 {t.Fatalf("instant join should be disabled: %d",w.Code)}
+
+    w=apiRequest(fixture.handler,"PATCH",path+"/controls",fixture.hostToken,body)
+    if w.Code!=200 {t.Fatalf("enable instant join: %d %s",w.Code,w.Body.String())}
+    // Instant joins require a real paired Windows Agent, not merely the flag.
+    w=apiRequest(fixture.handler,"POST",path+"/players/instant","",nil)
+    if w.Code!=409 {t.Fatalf("instant join without agent: %d",w.Code)}
+
+    pairing:=apiRequest(fixture.handler,"POST",path+"/pairing",fixture.hostToken,nil)
+    var issued struct{PairingCode string}
+    if err:=json.Unmarshal(pairing.Body.Bytes(),&issued);err!=nil {t.Fatal(err)}
+    redeemBody,_:=json.Marshal(map[string]string{"pairingCode":issued.PairingCode})
+    redeemed:=apiRequest(fixture.handler,"POST",path+"/pairing/redeem","",redeemBody)
+    var agentToken struct{AgentToken string}
+    if err:=json.Unmarshal(redeemed.Body.Bytes(),&agentToken);err!=nil {t.Fatal(err)}
+    backend:=httptest.NewServer(fixture.handler)
+    defer backend.Close()
+    agent:=openSocket(t,backend.URL,fixture.code,"agent",agentToken.AgentToken,"")
+    readEvent(t,agent,"connection.ready")
+
+    type claimed struct{PlayerID,PlayerToken string;Slot int}
+    join:=func()(*httptest.ResponseRecorder,claimed) {
+        response:=apiRequest(fixture.handler,"POST",path+"/players/instant","",nil)
+        var result claimed
+        _=json.Unmarshal(response.Body.Bytes(),&result)
+        return response,result
+    }
+    firstResponse,p2:=join()
+    if firstResponse.Code!=201 || p2.Slot!=2 {t.Fatalf("expected P2: %d %+v",firstResponse.Code,p2)}
+    secondResponse,p3:=join()
+    if secondResponse.Code!=201 || p3.Slot!=3 {t.Fatalf("expected P3: %d %+v",secondResponse.Code,p3)}
+    thirdResponse,p4:=join()
+    if thirdResponse.Code!=201 || p4.Slot!=4 {t.Fatalf("expected P4: %d %+v",thirdResponse.Code,p4)}
+    extra,_:=join()
+    if extra.Code!=409 {t.Fatalf("full room accepted another controller: %d",extra.Code)}
+
+    guest:=openSocket(t,backend.URL,fixture.code,"player",p2.PlayerToken,p2.PlayerID)
+    readEvent(t,guest,"connection.ready")
+    approval:=readEvent(t,guest,"player.status")
+    if approval["status"]!="approved" || approval["slot"]!=float64(2) {
+        t.Fatalf("instant player not approved: %+v",approval)
+    }
+    _=guest.Close()
+    // A disconnect releases P2, but must never steal P3/P4.
+    deadline:=time.Now().Add(2*time.Second)
+    for {
+        fixture.server.mu.Lock()
+        _,stillPresent:=fixture.server.rooms[fixture.code].Players[p2.PlayerID]
+        fixture.server.mu.Unlock()
+        if !stillPresent {break}
+        if time.Now().After(deadline) {t.Fatal("disconnect failed to release P2")}
+        time.Sleep(10*time.Millisecond)
+    }
+    reused,result:=join()
+    if reused.Code!=201 || result.Slot!=2 {
+        t.Fatalf("disconnected slot not reused: %d %+v",reused.Code,result)
+    }
+    // Expired reservations are reclaimable even when the client never opens a socket.
+    fixture.server.mu.Lock()
+    fixture.server.rooms[fixture.code].Players[result.PlayerID].JoinDeadline=time.Now().Add(-time.Second)
+    fixture.server.mu.Unlock()
+    again,next:=join()
+    if again.Code!=201 || next.Slot!=2 {
+        t.Fatalf("unconnected expired reservation not reclaimed: %d %+v",again.Code,next)
+    }
+}

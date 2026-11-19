@@ -68,13 +68,15 @@ function fromGamepad(pad: Gamepad): ControllerSnapshot {
   return s;
 }
 
-type Props = { active: boolean; send: (state: ControllerSnapshot) => void };
-export function BrowserController({ active, send }: Props) {
+type Props = { active: boolean; send: (state: ControllerSnapshot) => void; compact?: boolean; showSettings?: boolean; onDeviceChange?: (device: 'keyboard' | 'gamepad') => void };
+export function BrowserController({ active, send, compact = false, showSettings = false, onDeviceChange }: Props) {
   const [device, setDevice] = useState<'keyboard' | 'gamepad'>('keyboard');
   const [gamepads, setGamepads] = useState<{ index: number; name: string }[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const keys = useRef(new Set<string>());
   const sender = useRef(send);
+  const deviceChange = useRef(onDeviceChange);
+  deviceChange.current = onDeviceChange;
   sender.current = send;
 
   useEffect(() => {
@@ -85,6 +87,7 @@ export function BrowserController({ active, send }: Props) {
       setGamepads(pads);
       setSelected(previous => previous !== null && pads.some(p => p.index === previous)
         ? previous : pads[0]?.index ?? null);
+      setDevice(previous => pads.length > 0 ? 'gamepad' : previous === 'gamepad' ? 'keyboard' : previous);
     };
     refresh();
     window.addEventListener('gamepadconnected', refresh);
@@ -94,6 +97,8 @@ export function BrowserController({ active, send }: Props) {
       window.removeEventListener('gamepaddisconnected', refresh);
     };
   }, []);
+
+  useEffect(() => { deviceChange.current?.(device); }, [device]);
 
   useEffect(() => {
     if (!active || device !== 'keyboard') { keys.current.clear(); return; }
@@ -141,6 +146,7 @@ export function BrowserController({ active, send }: Props) {
     return () => { window.clearInterval(timer); sender.current(neutral()); };
   }, [active, device, selected]);
 
+  if (compact && !showSettings) return null;
   return <div className="browser-controller">
     <strong>Playable controller</strong>
     <small>Input is sent only after the host approves your P2/P3/P4 slot.</small>

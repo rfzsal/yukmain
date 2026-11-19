@@ -36,6 +36,7 @@ type room struct {
     PairingHash [32]byte
     PairingExpires time.Time
     AgentTokenHash [32]byte
+    InstantJoinEnabled bool
 }
 
 type rateEntry struct {
@@ -85,6 +86,9 @@ func (s *server) routes() http.Handler {
     mux.HandleFunc("GET /api/rooms/{code}/pairing", s.pairingStatus)
     mux.HandleFunc("GET /api/rooms/{code}/relay", s.relaySocket)
     mux.HandleFunc("POST /api/rooms/{code}/players", s.registerPlayer)
+    mux.HandleFunc("POST /api/rooms/{code}/players/instant", s.instantJoin)
+    mux.HandleFunc("GET /api/rooms/{code}/controls", s.instantJoinSettings)
+    mux.HandleFunc("PATCH /api/rooms/{code}/controls", s.setInstantJoin)
     mux.HandleFunc("GET /api/rooms/{code}/players", s.listPlayers)
     mux.HandleFunc("PATCH /api/rooms/{code}/players/{id}", s.approvePlayer)
     // The browser debug panel is opt-in; authenticated relay and pairing work without it.
